@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Trophy, Shield, Calendar, BookOpen, Settings, Users, ChevronLeft, ClipboardEdit,
+  LayoutDashboard, Trophy, Shield, Calendar, BookOpen, Settings, Users, ChevronLeft, ClipboardEdit, DollarSign,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -16,6 +16,7 @@ const mainItems = [
   { title: "Jogos", url: "/jogos", icon: Calendar },
   { title: "Palpites", url: "/palpites", icon: ClipboardEdit },
   { title: "Regras", url: "/regras", icon: BookOpen },
+  { title: "Premiação", url: "/premiacao", icon: DollarSign },
 ];
 
 const adminItems = [
