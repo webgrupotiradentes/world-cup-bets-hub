@@ -16,6 +16,7 @@ const mainItems = [
   { title: "Jogos", url: "/jogos", icon: Calendar },
   { title: "Palpites", url: "/palpites", icon: ClipboardEdit },
   { title: "Regras", url: "/regras", icon: BookOpen },
+  { title: "Premiação", url: "/premiacao", icon: DollarSign },
 ];
 
 const adminItems = [
