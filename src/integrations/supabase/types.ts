@@ -14,7 +14,205 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      bets: {
+        Row: {
+          away_score: number
+          created_at: string
+          home_score: number
+          id: string
+          match_id: string
+          participant_id: string
+          updated_at: string
+        }
+        Insert: {
+          away_score: number
+          created_at?: string
+          home_score: number
+          id?: string
+          match_id: string
+          participant_id: string
+          updated_at?: string
+        }
+        Update: {
+          away_score?: number
+          created_at?: string
+          home_score?: number
+          id?: string
+          match_id?: string
+          participant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bets_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bets_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cup_bracket_matches: {
+        Row: {
+          id: string
+          participant1_id: string | null
+          participant2_id: string | null
+          score1: number | null
+          score2: number | null
+          sort_order: number
+          stage: string
+          winner_id: string | null
+        }
+        Insert: {
+          id: string
+          participant1_id?: string | null
+          participant2_id?: string | null
+          score1?: number | null
+          score2?: number | null
+          sort_order?: number
+          stage: string
+          winner_id?: string | null
+        }
+        Update: {
+          id?: string
+          participant1_id?: string | null
+          participant2_id?: string | null
+          score1?: number | null
+          score2?: number | null
+          sort_order?: number
+          stage?: string
+          winner_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cup_bracket_matches_participant1_id_fkey"
+            columns: ["participant1_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_bracket_matches_participant2_id_fkey"
+            columns: ["participant2_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cup_bracket_matches_winner_id_fkey"
+            columns: ["winner_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      matches: {
+        Row: {
+          away_score: number | null
+          away_team_id: string | null
+          date: string
+          group: string | null
+          home_score: number | null
+          home_team_id: string | null
+          id: string
+          played: boolean
+          stage: string
+        }
+        Insert: {
+          away_score?: number | null
+          away_team_id?: string | null
+          date: string
+          group?: string | null
+          home_score?: number | null
+          home_team_id?: string | null
+          id: string
+          played?: boolean
+          stage?: string
+        }
+        Update: {
+          away_score?: number | null
+          away_team_id?: string | null
+          date?: string
+          group?: string | null
+          home_score?: number | null
+          home_team_id?: string | null
+          id?: string
+          played?: boolean
+          stage?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "matches_away_team_id_fkey"
+            columns: ["away_team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_home_team_id_fkey"
+            columns: ["home_team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      participants: {
+        Row: {
+          avatar: string
+          created_at: string
+          cup_eliminated: boolean
+          cup_group: string | null
+          id: string
+          name: string
+        }
+        Insert: {
+          avatar?: string
+          created_at?: string
+          cup_eliminated?: boolean
+          cup_group?: string | null
+          id?: string
+          name: string
+        }
+        Update: {
+          avatar?: string
+          created_at?: string
+          cup_eliminated?: boolean
+          cup_group?: string | null
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      teams: {
+        Row: {
+          flag: string
+          group: string | null
+          id: string
+          name: string
+        }
+        Insert: {
+          flag?: string
+          group?: string | null
+          id: string
+          name: string
+        }
+        Update: {
+          flag?: string
+          group?: string | null
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

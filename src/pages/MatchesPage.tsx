@@ -1,9 +1,16 @@
-import { matches, stageLabels } from "@/data/mockData";
 import { MatchCard } from "@/components/MatchCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "lucide-react";
+import { useMatches } from "@/hooks/use-bolao-data";
+import { stageLabels } from "@/lib/supabase-queries";
 
 export default function MatchesPage() {
+  const { data: matches = [], isLoading } = useMatches();
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-20 text-muted-foreground">Carregando...</div>;
+  }
+
   const stages = [...new Set(matches.map(m => m.stage))];
 
   return (
@@ -20,7 +27,7 @@ export default function MatchesPage() {
         <TabsList className="glass flex-wrap">
           <TabsTrigger value="all">Todos</TabsTrigger>
           {stages.map(s => (
-            <TabsTrigger key={s} value={s}>{stageLabels[s]}</TabsTrigger>
+            <TabsTrigger key={s} value={s}>{stageLabels[s] || s}</TabsTrigger>
           ))}
         </TabsList>
 

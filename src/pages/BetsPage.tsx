@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { matches, participants, sampleBets, stageLabels } from "@/data/mockData";
+import { useMatches, useParticipants, useInvalidate } from "@/hooks/use-bolao-data";
+import { fetchBets, upsertBet } from "@/lib/supabase-queries";
+import { stageLabels } from "@/lib/supabase-queries";
 import { Bet, Match } from "@/types/bolao";
-import { calculateScore, SCORING_RULES } from "@/lib/scoring";
+import { calculateScore } from "@/lib/scoring";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -10,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ClipboardEdit, Clock, Lock, Check, AlertTriangle, Trophy } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 
 const DEADLINE_MINUTES = 30;
 
@@ -38,36 +41,40 @@ interface BetFormState {
 }
 
 export default function BetsPage() {
-  const [selectedParticipant, setSelectedParticipant] = useState(participants[0].id);
-  const [bets, setBets] = useState<Bet[]>([...sampleBets]);
-  const [formState, setFormState] = useState<BetFormState>(() => {
-    const state: BetFormState = {};
-    matches.forEach((m) => {
-      const existing = sampleBets.find(
-        (b) => b.matchId === m.id && b.participantId === participants[0].id
-      );
-      state[m.id] = {
-        homeScore: existing ? String(existing.homeScore) : "",
-        awayScore: existing ? String(existing.awayScore) : "",
-      };
-    });
-    return state;
+  const { data: matches = [] } = useMatches();
+  const { data: participants = [] } = useParticipants();
+  const [selectedParticipant, setSelectedParticipant] = useState<string>("");
+  const invalidate = useInvalidate();
+
+  const { data: bets = [], refetch: refetchBets } = useQuery({
+    queryKey: ["bets", selectedParticipant],
+    queryFn: () => (selectedParticipant ? fetchBets(selectedParticipant) : Promise.resolve([])),
+    enabled: !!selectedParticipant,
   });
+
+  const [formState, setFormState] = useState<BetFormState>({});
+
+  // Set first participant when loaded
+  if (participants.length > 0 && !selectedParticipant) {
+    setSelectedParticipant(participants[0].id);
+  }
 
   const handleParticipantChange = (participantId: string) => {
     setSelectedParticipant(participantId);
-    const state: BetFormState = {};
-    matches.forEach((m) => {
-      const existing = bets.find(
-        (b) => b.matchId === m.id && b.participantId === participantId
-      );
-      state[m.id] = {
-        homeScore: existing ? String(existing.homeScore) : "",
-        awayScore: existing ? String(existing.awayScore) : "",
-      };
-    });
-    setFormState(state);
+    setFormState({});
   };
+
+  // Update form state when bets load
+  const initFormFromBets = () => {
+    if (Object.keys(formState).length === 0 && bets.length > 0) {
+      const state: BetFormState = {};
+      bets.forEach((b) => {
+        state[b.matchId] = { homeScore: String(b.homeScore), awayScore: String(b.awayScore) };
+      });
+      setFormState(state);
+    }
+  };
+  initFormFromBets();
 
   const handleScoreChange = (matchId: string, field: "homeScore" | "awayScore", value: string) => {
     if (value !== "" && (!/^\d+$/.test(value) || parseInt(value) > 99)) return;
@@ -77,47 +84,34 @@ export default function BetsPage() {
     }));
   };
 
-  const handleSaveBet = (matchId: string) => {
+  const handleSaveBet = async (matchId: string) => {
     const match = matches.find((m) => m.id === matchId);
     if (!match || !isBetOpen(match)) {
       toast.error("Prazo encerrado para este jogo!");
       return;
     }
-    const { homeScore, awayScore } = formState[matchId];
-    if (homeScore === "" || awayScore === "") {
+    const form = formState[matchId];
+    if (!form || form.homeScore === "" || form.awayScore === "") {
       toast.error("Preencha ambos os placares!");
       return;
     }
-    const existingIdx = bets.findIndex(
-      (b) => b.matchId === matchId && b.participantId === selectedParticipant
-    );
-    const newBet: Bet = {
-      id: `bet-${matchId}-${selectedParticipant}`,
-      matchId,
-      participantId: selectedParticipant,
-      homeScore: parseInt(homeScore),
-      awayScore: parseInt(awayScore),
-    };
-    if (existingIdx >= 0) {
-      const updated = [...bets];
-      updated[existingIdx] = newBet;
-      setBets(updated);
-      toast.success("Palpite atualizado!");
-    } else {
-      setBets([...bets, newBet]);
-      toast.success("Palpite registrado!");
+    try {
+      await upsertBet(matchId, selectedParticipant, parseInt(form.homeScore), parseInt(form.awayScore));
+      toast.success("Palpite salvo!");
+      refetchBets();
+      invalidate("participants-with-points");
+    } catch (err: any) {
+      toast.error(err.message);
     }
   };
 
-  const hasBet = (matchId: string) =>
-    bets.some((b) => b.matchId === matchId && b.participantId === selectedParticipant);
+  const hasBet = (matchId: string) => bets.some((b) => b.matchId === matchId);
 
   const upcomingMatches = matches.filter((m) => !m.played);
   const playedMatches = matches.filter((m) => m.played);
 
-  // Calculate total points from played matches
   const totalPointsFromBets = playedMatches.reduce((sum, match) => {
-    const bet = bets.find(b => b.matchId === match.id && b.participantId === selectedParticipant);
+    const bet = bets.find(b => b.matchId === match.id);
     if (!bet || match.homeScore === undefined || match.awayScore === undefined) return sum;
     const result = calculateScore(bet.homeScore, bet.awayScore, match.homeScore, match.awayScore);
     return sum + result.points;
@@ -125,7 +119,6 @@ export default function BetsPage() {
 
   const currentParticipant = participants.find((p) => p.id === selectedParticipant);
 
-  // Group upcoming matches by stage
   const groupedUpcoming = upcomingMatches.reduce<Record<string, Match[]>>((acc, m) => {
     const key = m.group ? `Grupo ${m.group}` : stageLabels[m.stage];
     if (!acc[key]) acc[key] = [];
@@ -140,39 +133,22 @@ export default function BetsPage() {
           <ClipboardEdit className="h-8 w-8 text-primary" />
           Palpites
         </h1>
-        <p className="text-muted-foreground mt-1">
-          Registre seus palpites até 30 minutos antes de cada jogo
-        </p>
+        <p className="text-muted-foreground mt-1">Registre seus palpites até 30 minutos antes de cada jogo</p>
       </div>
 
-      {/* Participant selector */}
       <Card className="glass p-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
           <label className="text-sm font-medium text-muted-foreground shrink-0">Participante:</label>
           <Select value={selectedParticipant} onValueChange={handleParticipantChange}>
-            <SelectTrigger className="w-full sm:w-64">
-              <SelectValue />
-            </SelectTrigger>
+            <SelectTrigger className="w-full sm:w-64"><SelectValue placeholder="Selecione" /></SelectTrigger>
             <SelectContent>
-              {participants.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
+              {participants.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          {currentParticipant && (
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-primary font-semibold">
-                {currentParticipant.totalPoints} pts (liga)
-              </span>
-              {playedMatches.length > 0 && (
-                <span className="text-sm text-success font-semibold flex items-center gap-1">
-                  <Trophy className="h-3.5 w-3.5" />
-                  {totalPointsFromBets} pts (palpites)
-                </span>
-              )}
-            </div>
+          {currentParticipant && playedMatches.length > 0 && (
+            <span className="text-sm text-success font-semibold flex items-center gap-1">
+              <Trophy className="h-3.5 w-3.5" /> {totalPointsFromBets} pts
+            </span>
           )}
         </div>
       </Card>
@@ -189,20 +165,13 @@ export default function BetsPage() {
           ) : (
             Object.entries(groupedUpcoming).map(([stage, stageMatches]) => (
               <div key={stage}>
-                <h3 className="font-heading font-semibold text-sm text-muted-foreground uppercase tracking-wider mb-3">
-                  {stage}
-                </h3>
+                <h3 className="font-heading font-semibold text-sm text-muted-foreground uppercase tracking-wider mb-3">{stage}</h3>
                 <div className="grid md:grid-cols-2 gap-4">
                   {stageMatches.map((match, i) => {
                     const open = isBetOpen(match);
                     const saved = hasBet(match.id);
                     return (
-                      <motion.div
-                        key={match.id}
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.03 }}
-                      >
+                      <motion.div key={match.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
                         <BetCard
                           match={match}
                           open={open}
@@ -227,16 +196,9 @@ export default function BetsPage() {
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
               {playedMatches.map((match, i) => {
-                const bet = bets.find(
-                  (b) => b.matchId === match.id && b.participantId === selectedParticipant
-                );
+                const bet = bets.find((b) => b.matchId === match.id);
                 return (
-                  <motion.div
-                    key={match.id}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.05 }}
-                  >
+                  <motion.div key={match.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
                     <PlayedBetCard match={match} bet={bet} />
                   </motion.div>
                 );
@@ -249,97 +211,44 @@ export default function BetsPage() {
   );
 }
 
-function BetCard({
-  match,
-  open,
-  saved,
-  homeScore,
-  awayScore,
-  onScoreChange,
-  onSave,
-}: {
-  match: Match;
-  open: boolean;
-  saved: boolean;
-  homeScore: string;
-  awayScore: string;
-  onScoreChange: (field: "homeScore" | "awayScore", val: string) => void;
-  onSave: () => void;
+function BetCard({ match, open, saved, homeScore, awayScore, onScoreChange, onSave }: {
+  match: Match; open: boolean; saved: boolean; homeScore: string; awayScore: string;
+  onScoreChange: (field: "homeScore" | "awayScore", val: string) => void; onSave: () => void;
 }) {
   return (
     <Card className={`glass p-4 transition-all ${open ? "hover:border-primary/30" : "opacity-70"}`}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            {new Date(match.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
-          </span>
-          {match.group && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-              Grupo {match.group}
-            </span>
-          )}
-          {match.stage !== "group" && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
-              {stageLabels[match.stage]}
-            </span>
-          )}
+          <span className="text-xs text-muted-foreground">{new Date(match.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}</span>
+          {match.group && <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Grupo {match.group}</span>}
+          {match.stage !== "group" && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">{stageLabels[match.stage]}</span>}
         </div>
         <div className="flex items-center gap-1.5">
           {open ? (
-            <>
-              <Clock className="h-3.5 w-3.5 text-warning" />
-              <span className="text-xs text-warning font-medium">{getDeadlineLabel(match)}</span>
-            </>
+            <><Clock className="h-3.5 w-3.5 text-warning" /><span className="text-xs text-warning font-medium">{getDeadlineLabel(match)}</span></>
           ) : (
-            <>
-              <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Bloqueado</span>
-            </>
+            <><Lock className="h-3.5 w-3.5 text-muted-foreground" /><span className="text-xs text-muted-foreground">Bloqueado</span></>
           )}
         </div>
       </div>
-
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span className="text-xl">{match.homeTeam.flag}</span>
           <span className="text-sm font-medium truncate">{match.homeTeam.name}</span>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <Input
-            type="text"
-            inputMode="numeric"
-            className="w-12 h-10 text-center text-lg font-bold p-0"
-            value={homeScore}
-            onChange={(e) => onScoreChange("homeScore", e.target.value)}
-            disabled={!open}
-            maxLength={2}
-          />
+          <Input type="text" inputMode="numeric" className="w-12 h-10 text-center text-lg font-bold p-0" value={homeScore} onChange={(e) => onScoreChange("homeScore", e.target.value)} disabled={!open} maxLength={2} />
           <span className="text-muted-foreground text-sm font-bold">×</span>
-          <Input
-            type="text"
-            inputMode="numeric"
-            className="w-12 h-10 text-center text-lg font-bold p-0"
-            value={awayScore}
-            onChange={(e) => onScoreChange("awayScore", e.target.value)}
-            disabled={!open}
-            maxLength={2}
-          />
+          <Input type="text" inputMode="numeric" className="w-12 h-10 text-center text-lg font-bold p-0" value={awayScore} onChange={(e) => onScoreChange("awayScore", e.target.value)} disabled={!open} maxLength={2} />
         </div>
         <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
           <span className="text-sm font-medium truncate">{match.awayTeam.name}</span>
           <span className="text-xl">{match.awayTeam.flag}</span>
         </div>
       </div>
-
       <div className="mt-3 flex items-center justify-end gap-2">
-        {saved && (
-          <span className="text-xs text-success flex items-center gap-1">
-            <Check className="h-3.5 w-3.5" /> Salvo
-          </span>
-        )}
-        <Button size="sm" onClick={onSave} disabled={!open}>
-          {saved ? "Atualizar" : "Salvar"} Palpite
-        </Button>
+        {saved && <span className="text-xs text-success flex items-center gap-1"><Check className="h-3.5 w-3.5" /> Salvo</span>}
+        <Button size="sm" onClick={onSave} disabled={!open}>{saved ? "Atualizar" : "Salvar"} Palpite</Button>
       </div>
     </Card>
   );
@@ -365,21 +274,11 @@ function PlayedBetCard({ match, bet }: { match: Match; bet?: Bet }) {
     <Card className="glass p-4 opacity-90">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            {new Date(match.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
-          </span>
-          {match.group && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-              Grupo {match.group}
-            </span>
-          )}
+          <span className="text-xs text-muted-foreground">{new Date(match.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}</span>
+          {match.group && <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Grupo {match.group}</span>}
         </div>
-        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-success/10 text-success">
-          Encerrado
-        </span>
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-success/10 text-success">Encerrado</span>
       </div>
-
-      {/* Result */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span className="text-xl">{match.homeTeam.flag}</span>
@@ -395,15 +294,7 @@ function PlayedBetCard({ match, bet }: { match: Match; bet?: Bet }) {
           <span className="text-xl">{match.awayTeam.flag}</span>
         </div>
       </div>
-
-      {/* User bet + scoring */}
-      <div className={`mt-3 p-2.5 rounded-lg text-sm border ${
-        bet
-          ? scoringResult
-            ? getScoreColorClass(scoringResult.color)
-            : "bg-muted"
-          : "bg-destructive/10 border-destructive/20"
-      }`}>
+      <div className={`mt-3 p-2.5 rounded-lg text-sm border ${bet ? scoringResult ? getScoreColorClass(scoringResult.color) : "bg-muted" : "bg-destructive/10 border-destructive/20"}`}>
         {bet ? (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -412,19 +303,14 @@ function PlayedBetCard({ match, bet }: { match: Match; bet?: Bet }) {
             </div>
             {scoringResult && (
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium px-2 py-0.5 rounded-full border bg-background/50">
-                  {scoringResult.label}
-                </span>
-                <span className="font-bold text-lg">
-                  +{scoringResult.points}
-                </span>
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full border bg-background/50">{scoringResult.label}</span>
+                <span className="font-bold text-lg">+{scoringResult.points}</span>
               </div>
             )}
           </div>
         ) : (
           <span className="flex items-center gap-1.5 text-destructive">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            Sem palpite registrado — 0 pts
+            <AlertTriangle className="h-3.5 w-3.5" /> Sem palpite registrado — 0 pts
           </span>
         )}
       </div>
