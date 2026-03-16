@@ -11,6 +11,7 @@ import CupPage from "./pages/CupPage";
 import MatchesPage from "./pages/MatchesPage";
 import BetsPage from "./pages/BetsPage";
 import RulesPage from "./pages/RulesPage";
+import PrizesPage from "./pages/PrizesPage";
 import AdminMatchesPage from "./pages/AdminMatchesPage";
 import AdminParticipantsPage from "./pages/AdminParticipantsPage";
 import AdminConfigPage from "./pages/AdminConfigPage";
